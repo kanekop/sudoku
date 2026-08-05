@@ -2,7 +2,14 @@
 
 ブラウザだけで動く数独アプリ。サーバー・ビルド不要の静的サイトです。
 
-## 起動方法
+## 公開URL
+
+**https://kanekop.github.io/sudoku/** (GitHub Pages)
+
+リポジトリ: https://github.com/kanekop/sudoku
+`main` ブランチに push すると1〜2分で公開サイトに反映されます。
+
+## ローカルでの開発・確認
 
 ```sh
 cd ~/Projects/Apps/sudoku
@@ -11,7 +18,7 @@ python3 -m http.server 8642
 ```
 
 ※ `file://` で直接開くのではなくローカルサーバー経由を推奨(OCR用のCDNライブラリ読込のため)。
-スマホから使う場合は、同じWi-Fi内で `http://<MacのIPアドレス>:8642` を開く。
+※ ブラウザキャッシュが効きやすいので、修正が反映されない時はハードリロード(Cmd+Shift+R)。
 
 ## 機能
 
