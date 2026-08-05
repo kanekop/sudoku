@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>数独 - Sudoku</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🔢</text></svg>">
+</head>
+<body>
+
+<header>
+  <h1>数独</h1>
+  <span id="levelBadge" class="badge"></span>
+  <span id="timer" class="timer">0:00</span>
+  <button id="userName" class="user-btn" title="名前を変更">ゲスト</button>
+</header>
+
+<main>
+  <div class="board-wrap">
+    <div id="board" class="board" aria-label="数独の盤面"></div>
+  </div>
+
+  <div class="panel">
+    <div class="controls">
+      <select id="levelSelect" aria-label="レベル">
+        <option value="beginner">入門</option>
+        <option value="easy" selected>初級</option>
+        <option value="medium">中級</option>
+        <option value="hard">上級</option>
+        <option value="expert">難問</option>
+        <option value="oni">鬼</option>
+      </select>
+      <button id="newGameBtn" class="primary">新しい問題</button>
+      <button id="hintBtn" class="accent">💡 次の一手</button>
+      <button id="checkBtn">✔ チェック</button>
+      <label class="file-btn" for="importFile">📷 画像から取込</label>
+      <input type="file" id="importFile" accept="image/*" hidden>
+      <button id="pdfBtn">📄 PDF出力</button>
+    </div>
+
+    <div id="numpad" class="numpad">
+      <button data-num="1">1<span class="count"></span></button>
+      <button data-num="2">2<span class="count"></span></button>
+      <button data-num="3">3<span class="count"></span></button>
+      <button data-num="4">4<span class="count"></span></button>
+      <button data-num="5">5<span class="count"></span></button>
+      <button data-num="6">6<span class="count"></span></button>
+      <button data-num="7">7<span class="count"></span></button>
+      <button data-num="8">8<span class="count"></span></button>
+      <button data-num="9">9<span class="count"></span></button>
+      <button id="eraseBtn" title="消す">⌫</button>
+      <button id="noteBtn" title="メモ (N)">✏️ メモ</button>
+      <button id="undoBtn" title="元に戻す (Ctrl+Z)">↩ 戻す</button>
+    </div>
+    <p class="help-text">マスを選んで数字をタップ。PCはキーボード(1-9・矢印・N=メモ・⌫)も使えます。</p>
+  </div>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<!-- 名前入力 -->
+<div id="nameModal" class="modal">
+  <div class="modal-box">
+    <h2>ようこそ!</h2>
+    <p>お名前を入力してください。このブラウザに記憶して、次回から表示します。</p>
+    <form id="nameForm">
+      <input type="text" id="nameInput" placeholder="例: よしむね" maxlength="20" autocomplete="off">
+      <div class="modal-actions">
+        <button type="submit" class="primary">はじめる</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ヒント -->
+<div id="hintModal" class="modal">
+  <div class="modal-box">
+    <h2>💡 次の一手</h2>
+    <p class="hint-head">
+      <strong id="hintPlace"></strong>
+      <span id="hintCounter" class="muted"></span>
+    </p>
+    <p><span id="hintTechnique" class="badge"></span> <span id="hintStars" class="stars"></span></p>
+    <p id="hintReason" class="hint-reason"></p>
+    <div class="modal-actions">
+      <button id="altHintBtn">別の手を見る</button>
+      <button id="applyHintBtn" class="primary">この手を打つ</button>
+      <button data-close>閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 画像取込 -->
+<div id="importModal" class="modal">
+  <div class="modal-box wide">
+    <h2>📷 画像から問題を取込</h2>
+    <div id="importStep1">
+      <p>青い4つの点をドラッグして、盤面の四隅にぴったり合わせてください。</p>
+      <div class="canvas-wrap"><canvas id="importCanvas"></canvas></div>
+      <p id="importProgress" class="muted"></p>
+      <div class="modal-actions">
+        <button id="recognizeBtn" class="primary">読み取る</button>
+        <button data-close>キャンセル</button>
+      </div>
+    </div>
+    <div id="importStep2" style="display:none">
+      <p id="reviewInfo"></p>
+      <div id="reviewGrid" class="review-grid"></div>
+      <div class="modal-actions">
+        <button id="startImportedBtn" class="primary">この問題を開始</button>
+        <button id="backToCornersBtn">四隅を調整し直す</button>
+        <button data-close>キャンセル</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PDF -->
+<div id="pdfModal" class="modal">
+  <div class="modal-box">
+    <h2>📄 PDF出力</h2>
+    <label class="check"><input type="checkbox" id="pdfProgress"> 現在の記入内容も含める</label>
+    <label class="check"><input type="checkbox" id="pdfSolution" checked> 解答ページを付ける</label>
+    <div class="modal-actions">
+      <button id="pdfExportBtn" class="primary">PDFをダウンロード</button>
+      <button data-close>キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- クリア -->
+<div id="winModal" class="modal">
+  <div class="modal-box">
+    <h2>🎉 クリア!</h2>
+    <p id="winText"></p>
+    <div class="modal-actions">
+      <button id="winNewGameBtn" class="primary">次の問題へ</button>
+      <button data-close>閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 生成中 -->
+<div id="loadingModal" class="modal">
+  <div class="modal-box slim">
+    <div class="spinner"></div>
+    <p id="loadingText">問題を作成中…</p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>
+<script src="js/sudoku.js"></script>
+<script src="js/hints.js"></script>
+<script src="js/ocr.js"></script>
+<script src="js/pdf.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
