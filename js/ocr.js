@@ -20,8 +20,13 @@
       const dx1 = p1.x - p2.x, dy1 = p1.y - p2.y;
       const dx2 = p3.x - p2.x, dy2 = p3.y - p2.y;
       const den = dx1 * dy2 - dx2 * dy1;
-      g = (sx * dy2 - dx2 * sy) / den;
-      h = (dx1 * sy - sx * dy1) / den;
+      /* den ≒ 0 = 3点が一直線・2点が重なる退化四角形。そのまま割ると g,h が
+       * Infinity/NaN になり、以後の warp 結果が全滅する(エラーは出ず、真っ白か
+       * 崩れた画像で認識0個になる)。ここは g=h=0 のアフィン近似へ落とす。 */
+      if (Math.abs(den) > 1e-9) {
+        g = (sx * dy2 - dx2 * sy) / den;
+        h = (dx1 * sy - sx * dy1) / den;
+      }
     }
     const a = p1.x - p0.x + g * p1.x;
     const b = p3.x - p0.x + h * p3.x;
@@ -31,8 +36,37 @@
     const f = p0.y;
     return (u, v) => {
       const w = g * u + h * v + 1;
-      return { x: (a * u + b * v + c) / w, y: (d * u + e * v + f) / w };
+      /* 退化した四角形では単位正方形の内側に w = 0 (無限遠に飛ぶ点) が現れる。
+       * そのまま割ると Infinity/NaN が漏れ出て、警告なしに描画・認識が壊れる。
+       * ここでは 0 を避けて「非常に遠い有限の点」に落とす。warpImage 側の
+       * 範囲チェックで盤外と判定され白く塗られるので、被害はそのマスに留まる。 */
+      const ww = Math.abs(w) < 1e-9 ? (w < 0 ? -1e-9 : 1e-9) : w;
+      return { x: (a * u + b * v + c) / ww, y: (d * u + e * v + f) / ww };
     };
+  }
+
+  /* 四隅 [tl, tr, br, bl] が「つぶれていない」凸四角形かを判定する。
+   * 3点が一直線・2点が重なる・裏返るような四隅を許すと射影変換が発散するため、
+   * ドラッグ側でこの検査を通らない移動は受け付けない。
+   * minEdge は退化とみなす辺の長さの下限 (元画像の座標系)。 */
+  function isConvexQuad(pts, minEdge) {
+    if (!Array.isArray(pts) || pts.length !== 4) return false;
+    const minLen = minEdge > 0 ? minEdge : 1;
+    const minCross = minLen * minLen * 0.05; // ほぼ一直線な並びを弾く
+    let sign = 0;
+    for (let k = 0; k < 4; k++) {
+      const a = pts[k], b = pts[(k + 1) % 4], c = pts[(k + 2) % 4];
+      if (!a || !b || !c) return false;
+      if (!Number.isFinite(a.x) || !Number.isFinite(a.y)) return false;
+      const ux = b.x - a.x, uy = b.y - a.y;
+      if (Math.sqrt(ux * ux + uy * uy) < minLen) return false; // 辺が短すぎる / 2点が重なる
+      const cross = ux * (c.y - b.y) - uy * (c.x - b.x);
+      if (!Number.isFinite(cross) || Math.abs(cross) < minCross) return false; // 3点が一直線
+      const s = cross > 0 ? 1 : -1;
+      if (sign === 0) sign = s;
+      else if (s !== sign) return false; // 凹み / 自己交差
+    }
+    return true;
   }
 
   /* 四隅 corners に囲まれた領域を WARP×WARP に補正して canvas を返す。
@@ -258,6 +292,10 @@
     return { grid, uncertain, warped };
   }
 
-  const api = { warpImage, recognizeGrid, squareToQuad };
-  global.SudokuOCR = api;
-})(window);
+  const api = { warpImage, recognizeGrid, squareToQuad, isConvexQuad, WARP, MAX_SRC_EDGE };
+
+  // 画像処理はブラウザ専用だが、幾何まわり (squareToQuad / isConvexQuad) は
+  // 純関数なので Node からも require して単体テストできるようにしておく
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else global.SudokuOCR = api;
+})(typeof window !== 'undefined' ? window : globalThis);

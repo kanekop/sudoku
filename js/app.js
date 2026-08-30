@@ -545,13 +545,19 @@
     if (best >= 0) impCanvas.setPointerCapture(ev.pointerId);
   });
   impCanvas.addEventListener('pointermove', (ev) => {
-    if (imp.dragIdx < 0) return;
+    if (imp.dragIdx < 0 || !imp.img) return;
     ev.preventDefault();
     const p = canvasPos(ev);
-    imp.corners[imp.dragIdx] = {
+    const next = imp.corners.slice();
+    next[imp.dragIdx] = {
       x: Math.max(0, Math.min(imp.img.naturalWidth, p.x / imp.dispScale)),
       y: Math.max(0, Math.min(imp.img.naturalHeight, p.y / imp.dispScale)),
     };
+    // 3点が一直線・2点が重なるような退化した四隅は受け付けない
+    // (射影変換が発散し、真っ白/崩れた画像で認識0個になるため)
+    const minEdge = Math.max(8, Math.min(imp.img.naturalWidth, imp.img.naturalHeight) * 0.05);
+    if (!window.SudokuOCR.isConvexQuad(next, minEdge)) return;
+    imp.corners = next;
     drawImportCanvas();
   });
   impCanvas.addEventListener('pointerup', () => { imp.dragIdx = -1; });
