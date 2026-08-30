@@ -80,20 +80,49 @@
       elapsed: elapsedSec(),
     }));
   }
+  // 長さ81・全要素が 0〜9 の整数か
+  function isValidGridArray(a) {
+    return Array.isArray(a) && a.length === 81 &&
+      a.every(v => Number.isInteger(v) && v >= 0 && v <= 9);
+  }
+
+  /* 保存データの妥当性検査。
+   * 旧バージョンの保存や手で壊された JSON で「復元は成功したが盤面が壊れている」
+   * 状態になるのを防ぐ。1つでも欠けたら保存を捨てて新規出題へ回す。 */
+  function isValidSave(d) {
+    if (!d || typeof d !== 'object') return false;
+    if (!isValidGridArray(d.puzzle) || !isValidGridArray(d.current)) return false;
+    // 出題済みのマスは書き換えられないはずなので、一致していなければ壊れている
+    for (let i = 0; i < 81; i++) {
+      if (d.puzzle[i] !== 0 && d.current[i] !== d.puzzle[i]) return false;
+    }
+    if (!Array.isArray(d.notes) || d.notes.length !== 81) return false;
+    if (!d.notes.every(a => Array.isArray(a) &&
+        a.every(v => Number.isInteger(v) && v >= 1 && v <= 9))) return false;
+    if (d.solution != null && !isValidGridArray(d.solution)) return false;
+    if (typeof d.levelKey !== 'string' || !d.levelKey) return false;
+    if (typeof d.levelLabel !== 'string' || !d.levelLabel) return false;
+    return true;
+  }
+
   function loadGame() {
+    let d = null;
     try {
       const raw = lsGet(LS.SAVE);
       if (!raw) return false;
-      const d = JSON.parse(raw);
-      if (!d.puzzle || d.puzzle.length !== 81) return false;
-      state.puzzle = d.puzzle; state.solution = d.solution; state.current = d.current;
-      state.notes = d.notes.map(a => new Set(a));
-      state.levelKey = d.levelKey; state.levelLabel = d.levelLabel;
-      state.elapsedBase = d.elapsed || 0;
-      state.finished = false;
-      state.history = [];
-      return true;
-    } catch (e) { return false; }
+      d = JSON.parse(raw);
+    } catch (e) { d = null; }
+    if (!isValidSave(d)) {
+      lsRemove(LS.SAVE); // 壊れた保存を毎回読みに行かない
+      return false;
+    }
+    state.puzzle = d.puzzle; state.solution = d.solution || null; state.current = d.current;
+    state.notes = d.notes.map(a => new Set(a));
+    state.levelKey = d.levelKey; state.levelLabel = d.levelLabel;
+    state.elapsedBase = Number.isFinite(d.elapsed) && d.elapsed > 0 ? Math.floor(d.elapsed) : 0;
+    state.finished = false;
+    state.history = [];
+    return true;
   }
 
   /* ---------- 盤面描画 ---------- */
