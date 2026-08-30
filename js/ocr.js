@@ -166,6 +166,7 @@
 
   /* ---------- Tesseract ---------- */
   let workerPromise = null;
+
   function getWorker() {
     if (!workerPromise) {
       if (typeof Tesseract === 'undefined') {
@@ -177,9 +178,23 @@
           tessedit_pageseg_mode: Tesseract.PSM.SINGLE_CHAR,
         });
         return w;
+      }).catch((err) => {
+        // 失敗した Promise をキャッシュしたままだと、ネット復帰後も永久に失敗し続ける
+        workerPromise = null;
+        throw err;
       });
     }
     return workerPromise;
+  }
+
+  /* 認識が終わったら worker を解放する。
+   * 1回の取込で用が済むのに WASM + 学習データが常駐し続ける方が高くつくので、
+   * 再取込時は作り直す。 */
+  function releaseWorker() {
+    const p = workerPromise;
+    workerPromise = null;
+    if (!p) return Promise.resolve();
+    return p.then(w => w.terminate()).catch(() => { /* 解放時のエラーは握りつぶす */ });
   }
 
   /* 盤面全体を認識。onProgress(done, total) を随時呼ぶ。
@@ -197,20 +212,24 @@
     const uncertain = [];
     if (total === 0) return { grid, uncertain, warped };
     const worker = await getWorker();
-    let done = 0;
-    for (let i = 0; i < 81; i++) {
-      if (!cells[i]) continue;
-      const { data } = await worker.recognize(cells[i]);
-      const txt = (data.text || '').replace(/[^1-9]/g, '');
-      const conf = data.confidence || 0;
-      if (txt.length >= 1) {
-        grid[i] = parseInt(txt[0], 10);
-        if (conf < 60) uncertain.push(i);
-      } else {
-        uncertain.push(i); // 何かあるのに読めない
+    try {
+      let done = 0;
+      for (let i = 0; i < 81; i++) {
+        if (!cells[i]) continue;
+        const { data } = await worker.recognize(cells[i]);
+        const txt = (data.text || '').replace(/[^1-9]/g, '');
+        const conf = data.confidence || 0;
+        if (txt.length >= 1) {
+          grid[i] = parseInt(txt[0], 10);
+          if (conf < 60) uncertain.push(i);
+        } else {
+          uncertain.push(i); // 何かあるのに読めない
+        }
+        done++;
+        if (onProgress) onProgress(done, total);
       }
-      done++;
-      if (onProgress) onProgress(done, total);
+    } finally {
+      await releaseWorker();
     }
     return { grid, uncertain, warped };
   }
