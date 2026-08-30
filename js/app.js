@@ -52,10 +52,28 @@
   function openModal(id) { $(id).classList.add('open'); }
   function closeModal(id) { $(id).classList.remove('open'); }
 
+  /* ---------- localStorage ----------
+   * Safari のプライベートブラウズ・容量超過・ストレージ無効化では例外が飛ぶ。
+   * 保存できなくても操作は続けられるべきなので、ここで吸収して一度だけ知らせる。 */
+  let lsWarned = false;
+  function lsSet(key, value) {
+    try { localStorage.setItem(key, value); return true; }
+    catch (e) {
+      if (!lsWarned) { lsWarned = true; toast('この環境では進行状況を保存できません'); }
+      return false;
+    }
+  }
+  function lsGet(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+  function lsRemove(key) {
+    try { localStorage.removeItem(key); } catch (e) { /* noop */ }
+  }
+
   /* ---------- 保存/復元 ---------- */
   function saveGame() {
-    if (!state.current || state.finished) { localStorage.removeItem(LS.SAVE); return; }
-    localStorage.setItem(LS.SAVE, JSON.stringify({
+    if (!state.current || state.finished) { lsRemove(LS.SAVE); return; }
+    lsSet(LS.SAVE, JSON.stringify({
       puzzle: state.puzzle, solution: state.solution, current: state.current,
       notes: state.notes.map(s => Array.from(s)),
       levelKey: state.levelKey, levelLabel: state.levelLabel,
@@ -64,7 +82,7 @@
   }
   function loadGame() {
     try {
-      const raw = localStorage.getItem(LS.SAVE);
+      const raw = lsGet(LS.SAVE);
       if (!raw) return false;
       const d = JSON.parse(raw);
       if (!d.puzzle || d.puzzle.length !== 81) return false;
@@ -295,7 +313,7 @@
         gen.pending = null;
         closeModal('#loadingModal');
         if (!res || !res.puzzle) { toast('問題の生成に失敗しました。もう一度お試しください'); return; }
-        localStorage.setItem(LS.LEVEL, levelKey);
+        lsSet(LS.LEVEL, levelKey);
         startGame(res.puzzle, res.solution, levelKey, level.label);
         toast(`${level.label}の新しい問題です。がんばって!`);
       },
@@ -324,9 +342,9 @@
     if (S.findConflicts(state.current).length > 0) return;
     state.finished = true;
     stopTimer();
-    localStorage.removeItem(LS.SAVE);
+    lsRemove(LS.SAVE);
     const t = fmtTime(state.elapsedBase);
-    const name = localStorage.getItem(LS.NAME) || '';
+    const name = lsGet(LS.NAME) || '';
     $('#winText').textContent = `${name ? name + 'さん、' : ''}クリアおめでとうございます! タイム: ${t} (${state.levelLabel})`;
     openModal('#winModal');
   }
@@ -399,7 +417,7 @@
 
   /* ---------- ユーザー名 ---------- */
   function initUser() {
-    const name = localStorage.getItem(LS.NAME);
+    const name = lsGet(LS.NAME);
     if (name) {
       $('#userName').textContent = name + ' さん';
     } else {
@@ -410,13 +428,13 @@
     e.preventDefault();
     const name = $('#nameInput').value.trim();
     if (name) {
-      localStorage.setItem(LS.NAME, name);
+      lsSet(LS.NAME, name);
       $('#userName').textContent = name + ' さん';
     }
     closeModal('#nameModal');
   });
   $('#userName').addEventListener('click', () => {
-    $('#nameInput').value = localStorage.getItem(LS.NAME) || '';
+    $('#nameInput').value = lsGet(LS.NAME) || '';
     openModal('#nameModal');
   });
 
@@ -597,7 +615,7 @@
       current: state.current,
       solution: includeSolution ? state.solution : null,
       levelEn: LEVEL_EN[state.levelKey] || '-',
-      userName: localStorage.getItem(LS.NAME) || '',
+      userName: lsGet(LS.NAME) || '',
       includeProgress,
     });
     if (!ok) toast('PDFライブラリが使えないため、印刷ダイアログからPDF保存してください');
@@ -633,7 +651,7 @@
   /* ---------- 起動 ---------- */
   buildBoard();
   initUser();
-  const savedLevel = localStorage.getItem(LS.LEVEL);
+  const savedLevel = lsGet(LS.LEVEL);
   if (savedLevel && S.LEVELS[savedLevel]) $('#levelSelect').value = savedLevel;
   if (loadGame()) {
     startTimer();
