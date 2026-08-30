@@ -13,6 +13,13 @@
   // 各マスと同じ行・列・ブロックに属するマス(peer)の索引を前計算
   const PEERS = [];
   const UNITS = []; // 27ユニット: 行0-8, 列9-17, ブロック18-26
+  const ROW_OF = new Uint8Array(N), COL_OF = new Uint8Array(N), BOX_OF = new Uint8Array(N);
+  // 9bit マスク (0-511) の立っているビット数。countSolutions の MRV 用
+  const POPCOUNT = new Uint8Array(512);
+  (function precomputeTables() {
+    for (let i = 0; i < N; i++) { ROW_OF[i] = rowOf(i); COL_OF[i] = colOf(i); BOX_OF[i] = boxOf(i); }
+    for (let m = 1; m < 512; m++) POPCOUNT[m] = POPCOUNT[m >> 1] + (m & 1);
+  })();
   (function precompute() {
     for (let u = 0; u < 9; u++) {
       const row = [], col = [], box = [];
@@ -71,31 +78,52 @@
     return arr;
   }
 
-  // バックトラック解答。limit 個まで解を数える (一意性チェックは limit=2)
-  // stats.nodes には探索中の分岐(仮置き)回数が積まれる — 問題の機械的難しさの指標
+  /* バックトラック解答。limit 個まで解を数える (一意性チェックは limit=2)
+   * stats.nodes には探索中の分岐(仮置き)回数が積まれる — 問題の機械的難しさの指標
+   *
+   * 行・列・ブロックごとの使用済み数字を 9bit マスクで持ち、候補の算出・配置・取消を
+   * ビット演算だけで行う。生成 (digPuzzle / digMinimal) はこの関数を数百〜数千回呼ぶため、
+   * ここの速度が体感の生成時間をほぼ決める。 */
   function countSolutions(grid, limit, solutionOut, stats) {
     const g = grid.slice();
+    const rowUsed = new Int32Array(9), colUsed = new Int32Array(9), boxUsed = new Int32Array(9);
+    // 初期配置の取り込み。与えられた盤面自体に重複があれば解は 0
+    for (let i = 0; i < N; i++) {
+      const v = g[i];
+      if (v === 0) continue;
+      const bit = 1 << (v - 1);
+      const r = ROW_OF[i], c = COL_OF[i], b = BOX_OF[i];
+      if ((rowUsed[r] & bit) || (colUsed[c] & bit) || (boxUsed[b] & bit)) return 0;
+      rowUsed[r] |= bit; colUsed[c] |= bit; boxUsed[b] |= bit;
+    }
     let count = 0;
     function bt() {
       if (count >= limit) return;
       // 候補最少のマスを選ぶ (MRV)
-      let best = -1, bestCands = null;
+      let best = -1, bestMask = 0, bestCount = 10;
       for (let i = 0; i < N; i++) {
         if (g[i] !== 0) continue;
-        const c = candidatesAt(g, i);
-        if (c.length === 0) return; // 行き詰まり
-        if (bestCands === null || c.length < bestCands.length) { best = i; bestCands = c; }
-        if (bestCands.length === 1) break;
+        const mask = ~(rowUsed[ROW_OF[i]] | colUsed[COL_OF[i]] | boxUsed[BOX_OF[i]]) & 0x1FF;
+        if (mask === 0) return; // 行き詰まり
+        const n = POPCOUNT[mask];
+        if (n < bestCount) { best = i; bestMask = mask; bestCount = n; }
+        if (bestCount === 1) break;
       }
       if (best === -1) { // 全マス埋まった
         count++;
         if (solutionOut && count === 1) for (let i = 0; i < N; i++) solutionOut[i] = g[i];
         return;
       }
-      if (stats && bestCands.length > 1) stats.nodes += bestCands.length - 1;
-      for (const v of bestCands) {
-        g[best] = v;
+      if (stats && bestCount > 1) stats.nodes += bestCount - 1;
+      const r = ROW_OF[best], c = COL_OF[best], b = BOX_OF[best];
+      let m = bestMask;
+      while (m !== 0) {
+        const bit = m & -m; // 最下位の候補ビット = 小さい数字から順に試す
+        m ^= bit;
+        g[best] = 32 - Math.clz32(bit);
+        rowUsed[r] ^= bit; colUsed[c] ^= bit; boxUsed[b] ^= bit;
         bt();
+        rowUsed[r] ^= bit; colUsed[c] ^= bit; boxUsed[b] ^= bit;
         g[best] = 0;
         if (count >= limit) return;
       }
