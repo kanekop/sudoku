@@ -574,7 +574,8 @@
     };
     // 3点が一直線・2点が重なるような退化した四隅は受け付けない
     // (射影変換が発散し、真っ白/崩れた画像で認識0個になるため)
-    const minEdge = Math.max(8, Math.min(imp.img.naturalWidth, imp.img.naturalHeight) * 0.05);
+    // 小さく切り出すこと自体は正当なので下限は緩め。狙いは潰れた四角形だけを弾くこと
+    const minEdge = Math.max(8, Math.min(imp.img.naturalWidth, imp.img.naturalHeight) * 0.02);
     if (!window.SudokuOCR.isConvexQuad(next, minEdge)) return;
     imp.corners = next;
     drawImportCanvas();
