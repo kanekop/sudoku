@@ -220,6 +220,7 @@ main {
 }
 .modal-box.wide { max-width: 700px; }
 .modal-box.slim { max-width: 260px; text-align: center; }
+.modal-box.slim .modal-actions { justify-content: center; }
 .modal-box h2 { font-size: 1.1rem; margin-bottom: 10px; }
 .modal-box p { margin-bottom: 10px; font-size: .92rem; line-height: 1.55; }
 .modal-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }

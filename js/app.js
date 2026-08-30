@@ -231,17 +231,92 @@
     render(); saveGame();
   }
 
+  /* ---------- 問題の生成 (Web Worker) ----------
+   * 生成は同期処理で数百ms〜数秒かかる。メインスレッドで回すと UI が固まるため
+   * Worker へ逃がす。Worker が使えない環境 (file:// 起動など) は
+   * 従来どおりメインスレッドで生成する。 */
+  const gen = {
+    worker: null,
+    broken: false,   // Worker を諦めた (二度と作り直さない)
+    seq: 0,          // 発行した生成リクエストの通し番号
+    pending: null,   // { id, levelKey, finish }
+  };
+
+  function getGenWorker() {
+    if (gen.broken) return null;
+    if (gen.worker) return gen.worker;
+    try {
+      const w = new Worker('js/generator-worker.js');
+      w.onmessage = (e) => {
+        const d = e.data || {};
+        const p = gen.pending;
+        if (!p || d.id !== p.id) return; // 中止済み / 古い結果
+        gen.pending = null;
+        p.finish(d.ok ? { puzzle: d.puzzle, solution: d.solution } : null);
+      };
+      w.onerror = (ev) => {
+        // Worker スクリプトを読み込めない環境 → 以後はメインスレッドで生成
+        if (ev && ev.preventDefault) ev.preventDefault();
+        gen.broken = true;
+        try { w.terminate(); } catch (_) { /* noop */ }
+        gen.worker = null;
+        const p = gen.pending;
+        gen.pending = null;
+        if (p) generateOnMainThread(p);
+      };
+      gen.worker = w;
+    } catch (_) {
+      gen.broken = true;
+      gen.worker = null;
+    }
+    return gen.worker;
+  }
+
+  function generateOnMainThread(p) {
+    // スピナーを1フレーム描かせてから同期生成に入る
+    setTimeout(() => {
+      if (p.id !== gen.seq) return;
+      p.finish(S.generatePuzzle(p.levelKey, H.ratePuzzle));
+    }, 30);
+  }
+
   function newGame(levelKey) {
-    const level = S.LEVELS[levelKey];
+    const level = S.LEVELS[levelKey] || S.LEVELS.easy;
+    const id = ++gen.seq;
     openModal('#loadingModal');
     $('#loadingText').textContent = `${level.label}の問題を作成中…`;
-    setTimeout(() => {
-      const { puzzle, solution } = S.generatePuzzle(levelKey, H.ratePuzzle);
-      closeModal('#loadingModal');
-      localStorage.setItem(LS.LEVEL, levelKey);
-      startGame(puzzle, solution, levelKey, level.label);
-      toast(`${level.label}の新しい問題です。がんばって!`);
-    }, 30);
+    // 進行中のゲームが無い(初回起動)ときは中止しても行き先が無いので隠す
+    $('#cancelGenBtn').style.display = state.current ? '' : 'none';
+
+    const p = {
+      id, levelKey,
+      finish: (res) => {
+        if (id !== gen.seq) return; // 中止済み / 新しい要求に置き換わった
+        gen.pending = null;
+        closeModal('#loadingModal');
+        if (!res || !res.puzzle) { toast('問題の生成に失敗しました。もう一度お試しください'); return; }
+        localStorage.setItem(LS.LEVEL, levelKey);
+        startGame(res.puzzle, res.solution, levelKey, level.label);
+        toast(`${level.label}の新しい問題です。がんばって!`);
+      },
+    };
+    gen.pending = p;
+
+    const w = getGenWorker();
+    if (w) w.postMessage({ id, levelKey });
+    else generateOnMainThread(p);
+  }
+
+  function cancelGeneration() {
+    if (!gen.pending) { closeModal('#loadingModal'); return; }
+    gen.seq++;          // 進行中の結果を無効化する
+    gen.pending = null;
+    if (gen.worker) {   // 走りっぱなしのスレッドを止める (停止した Worker は再利用不可)
+      try { gen.worker.terminate(); } catch (_) { /* noop */ }
+      gen.worker = null;
+    }
+    closeModal('#loadingModal');
+    toast('問題の作成を中止しました');
   }
 
   function checkComplete() {
@@ -538,6 +613,7 @@
   $('#altHintBtn').addEventListener('click', () => showHint(state.hintIdx + 1));
   $('#applyHintBtn').addEventListener('click', applyHint);
   $('#checkBtn').addEventListener('click', checkMistakes);
+  $('#cancelGenBtn').addEventListener('click', cancelGeneration);
   $('#newGameBtn').addEventListener('click', () => {
     newGame($('#levelSelect').value);
   });
