@@ -338,7 +338,12 @@
     return { solvable: false, rating: 5 };
   }
 
-  const api = { findMoves, ratePuzzle, buildCandMap };
+  // 除去系の手筋は単体テストから直接呼べるよう公開する
+  // (findMoves のカスケードでは前段の手筋が先に発火して到達しないことがあるため)
+  const api = {
+    findMoves, ratePuzzle, buildCandMap,
+    applyLockedCandidates, applyNakedSets, applyHiddenPairs, applyXWing,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.SudokuHints = api;
 })(typeof window !== 'undefined' ? window : globalThis);
