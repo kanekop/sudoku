@@ -6,7 +6,8 @@
 (function (global) {
   'use strict';
 
-  const WARP = 630; // 補正後の一辺 px (70px/マス)
+  const WARP = 630;          // 補正後の一辺 px (70px/マス)
+  const MAX_SRC_EDGE = 2000; // 射影変換の入力に使う元画像の長辺上限 px
 
   /* ---------- 射影変換 (単位正方形 → 四角形) Heckbert の閉形式 ---------- */
   function squareToQuad(p) {
@@ -34,27 +35,42 @@
     };
   }
 
-  /* 四隅 corners に囲まれた領域を WARP×WARP に補正して canvas を返す */
+  /* 四隅 corners に囲まれた領域を WARP×WARP に補正して canvas を返す。
+   * corners は元画像の座標系で受け取る (呼び出し側は原寸のまま渡してよい)。 */
   function warpImage(img, corners) {
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    /* 原寸のまま getImageData すると、スマホ写真 (4032x3024 = 12MP) で約 48MB、
+     * 48MP 級では 200MB 近い RGBA バッファになる。iOS Safari では canvas の
+     * 上限を超えて描画が黙って失敗し、真っ白な盤面を認識して「数字0個」になる。
+     * 出力は WARP×WARP しか使わないので、長辺を MAX_SRC_EDGE まで縮めてから扱う。 */
+    const k = Math.min(1, MAX_SRC_EDGE / Math.max(iw, ih, 1));
+    const sw = Math.max(1, Math.round(iw * k));
+    const sh = Math.max(1, Math.round(ih * k));
+
     const src = document.createElement('canvas');
-    src.width = img.naturalWidth || img.width;
-    src.height = img.naturalHeight || img.height;
-    src.getContext('2d').drawImage(img, 0, 0);
-    const srcData = src.getContext('2d').getImageData(0, 0, src.width, src.height);
+    src.width = sw; src.height = sh;
+    const sctx = src.getContext('2d', { willReadFrequently: true });
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = 'high';
+    sctx.drawImage(img, 0, 0, sw, sh);
+    const srcData = sctx.getImageData(0, 0, sw, sh);
 
     const dst = document.createElement('canvas');
     dst.width = WARP; dst.height = WARP;
-    const dctx = dst.getContext('2d');
+    // extractDigit が 81 回 getImageData するので読み出し前提のコンテキストにする
+    const dctx = dst.getContext('2d', { willReadFrequently: true });
     const dstData = dctx.createImageData(WARP, WARP);
-    const map = squareToQuad(corners);
+    // 四隅も同じ倍率へ寄せる (corners は元画像の座標系のまま渡ってくる)
+    const map = squareToQuad(k === 1 ? corners : corners.map(p => ({ x: p.x * k, y: p.y * k })));
 
     for (let y = 0; y < WARP; y++) {
       for (let x = 0; x < WARP; x++) {
         const s = map(x / WARP, y / WARP);
         const sx = Math.round(s.x), sy = Math.round(s.y);
         const di = (y * WARP + x) * 4;
-        if (sx >= 0 && sx < src.width && sy >= 0 && sy < src.height) {
-          const si = (sy * src.width + sx) * 4;
+        if (sx >= 0 && sx < sw && sy >= 0 && sy < sh) {
+          const si = (sy * sw + sx) * 4;
           dstData.data[di] = srcData.data[si];
           dstData.data[di + 1] = srcData.data[si + 1];
           dstData.data[di + 2] = srcData.data[si + 2];
