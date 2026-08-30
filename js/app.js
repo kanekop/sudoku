@@ -335,6 +335,13 @@
 
   function newGame(levelKey) {
     const level = S.LEVELS[levelKey] || S.LEVELS.easy;
+    /* 前の生成がまだ走っていたら、そのスレッドごと捨てる。
+     * Worker はメッセージを直列に処理するので、捨てないと新しい要求が
+     * 前の生成 (最悪ケースの「鬼」など) の完了を待たされる。 */
+    if (gen.pending && gen.worker) {
+      try { gen.worker.terminate(); } catch (_) { /* noop */ }
+      gen.worker = null;
+    }
     const id = ++gen.seq;
     openModal('#loadingModal');
     $('#loadingText').textContent = `${level.label}の問題を作成中…`;
