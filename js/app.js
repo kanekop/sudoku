@@ -298,7 +298,8 @@
     if (gen.broken) return null;
     if (gen.worker) return gen.worker;
     try {
-      const w = new Worker('js/generator-worker.js');
+      // ?v= は index.html のアセット参照と同じキャッシュバスティング用の版番号
+      const w = new Worker('js/generator-worker.js?v=2');
       w.onmessage = (e) => {
         const d = e.data || {};
         const p = gen.pending;
