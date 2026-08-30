@@ -244,7 +244,12 @@
     const d = { ArrowUp: -9, ArrowDown: 9, ArrowLeft: -1, ArrowRight: 1 }[e.key];
     if (d !== undefined) {
       e.preventDefault();
-      let i = state.selected < 0 ? 40 : state.selected + d;
+      if (state.selected < 0) { selectCell(40); return; }
+      // 左右は行端で止める (i-1 / i+1 だと隣の行へ回り込んで誤入力の元になる)
+      const col = S.colOf(state.selected);
+      if (d === -1 && col === 0) return;
+      if (d === 1 && col === 8) return;
+      const i = state.selected + d; // 上下は 0..80 の範囲チェックで止まる
       if (i >= 0 && i < 81) selectCell(i);
     }
   });
@@ -441,7 +446,9 @@
       wrong = conflicts.length;
     }
     toast(wrong === 0 ? '今のところ間違いはありません!' : `${wrong}マスが間違っています (赤色表示)`);
-    setTimeout(() => cellEls.forEach(el => el.classList.remove('wrong')), 3000);
+    // 3秒以内に再チェックすると、前回のタイマーが新しい赤ハイライトを即座に消してしまう
+    clearTimeout(checkMistakes._t);
+    checkMistakes._t = setTimeout(() => cellEls.forEach(el => el.classList.remove('wrong')), 3000);
   }
 
   /* ---------- ユーザー名 ---------- */
@@ -476,7 +483,11 @@
     e.target.value = '';
     if (!file) return;
     const img = new Image();
+    // revoke しないと Blob URL とデコード済み画像がセッション終了まで解放されない。
+    // デコード後 (onload 以降) なら revoke しても描画に影響しない。
+    const url = URL.createObjectURL(file);
     img.onload = () => {
+      URL.revokeObjectURL(url);
       imp.img = img;
       const m = 0.04;
       imp.corners = [
@@ -490,8 +501,8 @@
       openModal('#importModal');
       requestAnimationFrame(drawImportCanvas);
     };
-    img.onerror = () => toast('画像を読み込めませんでした');
-    img.src = URL.createObjectURL(file);
+    img.onerror = () => { URL.revokeObjectURL(url); toast('画像を読み込めませんでした'); };
+    img.src = url;
   });
 
   function drawImportCanvas() {
@@ -653,7 +664,10 @@
       userName: lsGet(LS.NAME) || '',
       includeProgress,
     });
-    if (!ok) toast('PDFライブラリが使えないため、印刷ダイアログからPDF保存してください');
+    if (!ok) {
+      toast('PDFライブラリが使えないため、印刷ダイアログからPDF保存してください。' +
+        '印刷されるのは画面の盤面だけで、解答ページは付きません', 5000);
+    }
   });
 
   /* ---------- イベント結線 ---------- */

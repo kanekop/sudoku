@@ -31,7 +31,14 @@
     doc.setTextColor(0, 0, 0);
   }
 
-  /* opts: { puzzle, solution, current, levelLabel, userName, includeProgress } */
+  /* opts: {
+   *   puzzle,           // 出題時の盤面 (太字で出す givens の判定にも使う)
+   *   current,          // 現在の記入内容 (includeProgress のときだけ描く)
+   *   solution,         // 解答。null なら解答ページを付けない
+   *   levelEn,          // レベル名の英語表記 (jsPDF 標準フォントは日本語を描けない)
+   *   userName,         // ASCII のときだけ Player: として載せる
+   *   includeProgress,  // true なら1ページ目に current を描く
+   * } */
   function exportPdf(opts) {
     const JsPDF = global.jspdf && global.jspdf.jsPDF;
     if (!JsPDF) { fallbackPrint(); return false; }
@@ -69,6 +76,9 @@
     return true;
   }
 
+  /* jsPDF が読み込めなかったときの逃げ道。
+   * 画面に見えている盤面を印刷するだけなので、「解答ページを付ける」
+   * 「記入内容も含める」の指定は反映されない (呼び出し側でその旨を伝えること)。 */
   function fallbackPrint() {
     window.print();
   }
