@@ -165,36 +165,52 @@
   }
 
   /* ---------- Tesseract ---------- */
-  let workerPromise = null;
+  const OCR_WORKERS = 3; // 並列数。増やすほど初期化コストとメモリが増える
+  let schedulerPromise = null;
 
-  function getWorker() {
-    if (!workerPromise) {
+  function makeWorker() {
+    return Tesseract.createWorker('eng').then(async (w) => {
+      await w.setParameters({
+        tessedit_char_whitelist: '123456789',
+        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_CHAR,
+      });
+      return w;
+    });
+  }
+
+  /* worker 複数個を束ねた scheduler を返す。
+   * 81マスを1個ずつ直列に recognize すると数十秒かかるため並列化する。 */
+  function getScheduler() {
+    if (!schedulerPromise) {
       if (typeof Tesseract === 'undefined') {
         return Promise.reject(new Error('Tesseract.js が読み込めませんでした。ネット接続を確認してください。'));
       }
-      workerPromise = Tesseract.createWorker('eng').then(async (w) => {
-        await w.setParameters({
-          tessedit_char_whitelist: '123456789',
-          tessedit_pageseg_mode: Tesseract.PSM.SINGLE_CHAR,
-        });
-        return w;
+      const scheduler = Tesseract.createScheduler();
+      const jobs = [];
+      for (let k = 0; k < OCR_WORKERS; k++) {
+        jobs.push(makeWorker().then(w => scheduler.addWorker(w)));
+      }
+      schedulerPromise = Promise.all(jobs).then(() => scheduler, (err) => {
+        // 途中まで作れた worker を取り残さない
+        try { scheduler.terminate(); } catch (_) { /* noop */ }
+        throw err;
       }).catch((err) => {
         // 失敗した Promise をキャッシュしたままだと、ネット復帰後も永久に失敗し続ける
-        workerPromise = null;
+        schedulerPromise = null;
         throw err;
       });
     }
-    return workerPromise;
+    return schedulerPromise;
   }
 
   /* 認識が終わったら worker を解放する。
    * 1回の取込で用が済むのに WASM + 学習データが常駐し続ける方が高くつくので、
    * 再取込時は作り直す。 */
-  function releaseWorker() {
-    const p = workerPromise;
-    workerPromise = null;
+  function releaseScheduler() {
+    const p = schedulerPromise;
+    schedulerPromise = null;
     if (!p) return Promise.resolve();
-    return p.then(w => w.terminate()).catch(() => { /* 解放時のエラーは握りつぶす */ });
+    return p.then(s => s.terminate()).catch(() => { /* 解放時のエラーは握りつぶす */ });
   }
 
   /* 盤面全体を認識。onProgress(done, total) を随時呼ぶ。
@@ -211,12 +227,22 @@
     const grid = new Array(81).fill(0);
     const uncertain = [];
     if (total === 0) return { grid, uncertain, warped };
-    const worker = await getWorker();
+    const targets = [];
+    for (let i = 0; i < 81; i++) if (cells[i]) targets.push(i);
+
+    const scheduler = await getScheduler();
     try {
       let done = 0;
-      for (let i = 0; i < 81; i++) {
-        if (!cells[i]) continue;
-        const { data } = await worker.recognize(cells[i]);
+      // 結果は targets の順(索引の昇順)で揃うので uncertain も昇順のまま
+      const results = await Promise.all(targets.map(i =>
+        scheduler.addJob('recognize', cells[i]).then((res) => {
+          done++;
+          if (onProgress) onProgress(done, total);
+          return res;
+        })));
+      results.forEach((res, k) => {
+        const i = targets[k];
+        const data = (res && res.data) || {};
         const txt = (data.text || '').replace(/[^1-9]/g, '');
         const conf = data.confidence || 0;
         if (txt.length >= 1) {
@@ -225,11 +251,9 @@
         } else {
           uncertain.push(i); // 何かあるのに読めない
         }
-        done++;
-        if (onProgress) onProgress(done, total);
-      }
+      });
     } finally {
-      await releaseWorker();
+      await releaseScheduler();
     }
     return { grid, uncertain, warped };
   }
