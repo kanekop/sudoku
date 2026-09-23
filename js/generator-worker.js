@@ -11,7 +11,7 @@
 'use strict';
 
 // ?v= は index.html のアセット参照と同じキャッシュバスティング用の版番号
-importScripts('sudoku.js?v=2', 'hints.js?v=2');
+importScripts('sudoku.js?v=3', 'hints.js?v=3');
 
 self.onmessage = function (e) {
   const data = e.data || {};

@@ -39,7 +39,17 @@ header h1 { font-size: 1.25rem; color: var(--blue); }
   font-size: .8rem;
   font-weight: 600;
 }
-.timer { font-variant-numeric: tabular-nums; color: #64748b; font-weight: 600; }
+.timer {
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: #64748b;
+  font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.timer.off { opacity: .55; }
 .user-btn {
   margin-left: auto;
   border: 1px solid #e2e8f0;

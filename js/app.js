@@ -11,6 +11,7 @@
     SAVE: 'sudoku.save',
     LEVEL: 'sudoku.level',
     STATS: 'sudoku.stats',
+    TIMER: 'sudoku.showTimer',
   };
 
   const LEVEL_EN = { beginner: 'Beginner', easy: 'Easy', medium: 'Medium', hard: 'Hard', expert: 'Expert', oni: 'Extreme', imported: 'Imported' };
@@ -254,12 +255,19 @@
     }
   });
 
-  /* ---------- タイマー ---------- */
+  /* ---------- タイマー ----------
+   * 表示は既定でオフ (ヘッダーの⏱で切り替え)。経過時間は保存・クリア判定が
+   * 使うため、非表示でも計測自体は止めない。 */
+  let showTimer = lsGet(LS.TIMER) === '1';
+  function renderTimer() {
+    $('#timer').textContent = showTimer ? fmtTime(elapsedSec()) : '⏱';
+    $('#timer').classList.toggle('off', !showTimer);
+  }
   function startTimer() {
     stopTimer();
     state.startTs = Date.now();
-    state.timerId = setInterval(() => { $('#timer').textContent = fmtTime(elapsedSec()); }, 1000);
-    $('#timer').textContent = fmtTime(elapsedSec());
+    state.timerId = setInterval(renderTimer, 1000);
+    renderTimer();
   }
   function stopTimer() {
     if (state.timerId) clearInterval(state.timerId);
@@ -299,7 +307,7 @@
     if (gen.worker) return gen.worker;
     try {
       // ?v= は index.html のアセット参照と同じキャッシュバスティング用の版番号
-      const w = new Worker('js/generator-worker.js?v=2');
+      const w = new Worker('js/generator-worker.js?v=3');
       w.onmessage = (e) => {
         const d = e.data || {};
         const p = gen.pending;
@@ -385,9 +393,9 @@
     state.finished = true;
     stopTimer();
     lsRemove(LS.SAVE);
-    const t = fmtTime(state.elapsedBase);
+    const t = showTimer ? ` タイム: ${fmtTime(state.elapsedBase)}` : '';
     const name = lsGet(LS.NAME) || '';
-    $('#winText').textContent = `${name ? name + 'さん、' : ''}クリアおめでとうございます! タイム: ${t} (${state.levelLabel})`;
+    $('#winText').textContent = `${name ? name + 'さん、' : ''}クリアおめでとうございます!${t} (${state.levelLabel})`;
     openModal('#winModal');
   }
 
@@ -480,6 +488,11 @@
   $('#userName').addEventListener('click', () => {
     $('#nameInput').value = lsGet(LS.NAME) || '';
     openModal('#nameModal');
+  });
+  $('#timer').addEventListener('click', () => {
+    showTimer = !showTimer;
+    if (showTimer) lsSet(LS.TIMER, '1'); else lsRemove(LS.TIMER);
+    renderTimer();
   });
 
   /* ---------- 画像取込 ---------- */
@@ -709,6 +722,7 @@
   /* ---------- 起動 ---------- */
   buildBoard();
   initUser();
+  renderTimer();
   const savedLevel = lsGet(LS.LEVEL);
   if (savedLevel && S.LEVELS[savedLevel]) $('#levelSelect').value = savedLevel;
   if (loadGame()) {
